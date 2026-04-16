@@ -25,3 +25,4 @@ docker/db-data/
 # Env files (локальные настройки, ключи и т.п.)
 .env
 */.env
+!docker/.env
