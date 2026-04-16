@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+env/
+venv/
+
+# VS Code
+.vscode/
+
+# Данные/артефакты
+models/sam1/
+models/sam2/
+
+input/
+output/
+classification/
+src/vision-pipeline/runs/
+src/vision-pipeline/dataset/
+src/cv_recognition/
+
+# Docker
+docker/db-data/
+
+# Env files (локальные настройки, ключи и т.п.)
+.env
+*/.env

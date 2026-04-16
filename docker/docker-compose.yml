@@ -1,0 +1,152 @@
+# =============================================================================
+# docker-compose.yml – CV Recognition Pipeline
+# =============================================================================
+# Архитектура:
+#   camera ──► mediamtx ──► vision-pipeline ──► nats  ──► comparator
+#                                                │                │
+#                                            nats-queue       postgres/sqlite
+# =============================================================================
+
+version: "3.9"
+
+services:
+
+  # ── MediaMTX: RTSP-прокси ─────────────────────────────────────────────────
+  mediamtx:
+    image: bluenviron/mediamtx:latest
+    restart: unless-stopped
+    ports:
+      - "8554:8554"   # RTSP
+      - "8888:8888"   # HLS (опционально)
+    volumes:
+      - ../src/mediamtx_v1.15.6_linux_amd64/mediamtx.yml:/mediamtx.yml:ro
+    networks:
+      - cv-net
+
+  # ── NATS: брокер сообщений ────────────────────────────────────────────────
+  nats:
+    image: nats:2.10-alpine
+    restart: unless-stopped
+    command: ["-js"]        # включаем JetStream (очереди с гарантией доставки)
+    ports:
+      - "4222:4222"
+    networks:
+      - cv-net
+
+  # ── Container 1: детекция (YOLO) + сегментация (SAM2) ────────────────────
+  vision-pipeline:
+    build:
+      context: docker-images/vision-pipeline
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      - mediamtx
+      - nats
+    environment:
+      RTSP_URL:         ${RTSP_URL}
+      NATS_URL:         ${NATS_URL}
+      NATS_SUBJECT:     ${NATS_SUBJECT}
+      YOLO_MODEL_PATH:  ${YOLO_MODEL_PATH}
+      CLASSIFIER_ONNX:  ${CLASSIFIER_ONNX}
+      DETECTION_CONF:   ${DETECTION_CONF}
+      FRAME_SKIP:       ${FRAME_SKIP}
+      DEVICE:           ${DEVICE}
+    volumes:
+      - ../models/yolo:/app/models/yolo:ro
+      - ../models/sam1:/app/models/sam1:ro
+      - ../models/sam2:/app/models/sam2:ro
+    networks:
+      - cv-net
+
+
+  # ── ШЕЛ: интерактивный доступ к контейнеру ───────────────────────────────
+  # Запустить в фоне:
+  #   docker compose -f docker/docker-compose.yml --profile test up -d dev-shell
+  # Зайти когда угодно:
+  #   docker exec -it vision-pipeline bash
+  # Остановить:
+  #   docker compose -f docker/docker-compose.yml stop dev-shell
+  dev-shell:
+    build:
+      context: docker-images/vision-pipeline
+      dockerfile: Dockerfile
+    profiles: ["test"]
+    container_name: vision-pipeline
+    environment:
+      RTSP_URL:        ${RTSP_URL}
+      NATS_URL:        ${NATS_URL}
+      NATS_SUBJECT:    ${NATS_SUBJECT}
+      YOLO_MODEL_PATH: ${YOLO_MODEL_PATH}
+      CLASSIFIER_ONNX: ${CLASSIFIER_ONNX}
+      DETECTION_CONF:  ${DETECTION_CONF}
+      FRAME_SKIP:      ${FRAME_SKIP}
+      DEVICE:          ${DEVICE}
+    volumes:
+      - ../src/vision-pipeline:/app
+      - dev-input:/app/input
+      - dev-test-classification:/app/test_classification
+      - dev-output:/app/output
+      - ../models/yolo:/app/models/yolo
+      - ../models/yolo:/app/models/onnx
+      - ../models/yolo:/app/models/resnet
+      - ../models/sam1:/app/models/sam1:ro
+      - ../models/sam2:/app/models/sam2:ro
+      - dev-dataset:/app/dataset
+    networks:
+      - cv-net
+    command: ["sleep", "infinity"]   # просто висит и ждёт
+ 
+  classifier:
+    image: python:3.12-slim       
+    restart: unless-stopped
+    depends_on:
+      - nats
+    environment:
+      NATS_URL:         ${NATS_URL}
+      SUB_SUBJECT:      ${CLS_SUB_SUBJECT}
+      PUB_SUBJECT:      ${CLS_PUB_SUBJECT}
+    networks:
+      - cv-net
+    # command: ["python", "classifier/main.py"]
+
+  # ── Container 3: компаратор – сравнение с эталоном из БД ─────────────────
+  comparator:
+    build:
+      context: ..
+      dockerfile: docker-images/comparator/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      - nats
+      - db
+    environment:
+      NATS_URL:       ${NATS_URL}
+      VISION_SUBJECT: ${CMP_SUB_SUBJECT}
+      SERVER_SUBJECT: ${SERVER_SUBJECT}
+      DB_URL:         ${DB_URL}
+    networks:
+      - cv-net
+    # command: ["python", "comparator/main.py"]
+
+  # ── PostgreSQL: таблица эталонных меток ───────────────────────────────────
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER:     cv_user
+      POSTGRES_PASSWORD: cv_pass
+      POSTGRES_DB:       cv_db
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    networks:
+      - cv-net
+
+networks:
+  cv-net:
+    driver: bridge
+
+volumes:
+  db-data:
+  dev-input:
+  dev-test-classification:
+  dev-output:
+  dev-dataset:
