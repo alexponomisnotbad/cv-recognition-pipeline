@@ -57,7 +57,7 @@ def build_resnet50(
 ) -> tuple[ResNetClassifier, torch.device]:
 	"""Создаёт ResNet-50 классификатор и переносит на нужное устройство.
 
-	Возвращает (модель, device), чтобы ты мог легко делать .to(device).
+	Возвращает (модель, device), чтобы легко делать .to(device).
 	"""
 
 	if device is None:

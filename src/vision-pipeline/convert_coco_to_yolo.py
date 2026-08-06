@@ -105,7 +105,7 @@ names: {list(categories.values())}
     print(f"✓ data.yaml created at: {yaml_path}")
 
 if __name__ == "__main__":
-    coco_dir = "/app/dataset/coco_dataset"
-    output_dir = "/app/dataset/yolo_dataset"
+    coco_dir = "/app/dataset_detection"
+    output_dir = "/app/dataset_detection/yolo_dataset_detection"
     
     convert_coco_to_yolo(coco_dir, output_dir)

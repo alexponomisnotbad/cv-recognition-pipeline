@@ -42,16 +42,18 @@ class YOLODetector:
 
         logger.info("Загружаем YOLO из %s (device=%s)", model_path, device)
         self.model = YOLO(model_path)
-        self.model.to(device)
+        self.device = device
+        self.model_path = model_path
         self.confidence = confidence
         self.imgsz = imgsz
 
     def detect(self, frame: np.ndarray) -> List[Dict[str, Any]]:
         """Запускаем инференс, возвращаем список детекций."""
-        results = self.model(
+        results = self.model.predict(
             frame,
             conf=self.confidence,
             imgsz=self.imgsz,
+            device=self.device,
             verbose=False,
         )[0]
 

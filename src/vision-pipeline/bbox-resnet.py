@@ -19,6 +19,7 @@ import json
 import logging
 import os
 import sys
+import time
 from pathlib import Path
 
 import cv2
@@ -129,12 +130,16 @@ def main() -> None:
     logger.info("Начало обработки %d изображений...", len(images))
 
     for idx, img_path in enumerate(images, start=1):
+        t_start = time.perf_counter()
+        
         frame = cv2.imread(str(img_path))
         if frame is None:
             logger.warning("Не удалось прочитать %s", img_path.name)
             continue
 
+        t_yolo_start = time.perf_counter()
         detections = detector.detect(frame)
+        t_yolo_end = time.perf_counter()
         if not detections:
             logger.info("%s: YOLO не нашел объектов", img_path.name)
             cv2.imwrite(str(OUTPUT_DIR / img_path.name), frame)
@@ -165,12 +170,14 @@ def main() -> None:
             logger.warning("%s: пустой кроп по bbox %s", img_path.name, bbox)
             continue
 
+        t_resnet_start = time.perf_counter()
         with torch.no_grad():
             inp = _preprocess_crop(crop, device)
             logits = model(inp)
             probs = torch.softmax(logits, dim=1)[0]
             cls_idx = int(torch.argmax(probs).item())
             cls_conf = float(probs[cls_idx].item())
+        t_resnet_end = time.perf_counter()
 
         cls_label = CLASS_NAMES[cls_idx] if cls_idx < len(CLASS_NAMES) else f"class_{cls_idx}"
 
@@ -198,8 +205,12 @@ def main() -> None:
             ],
         })
 
+        t_end = time.perf_counter()
+        
         logger.info(
-            "%s: class=%s conf=%.3f bbox=%s", img_path.name, cls_label, cls_conf, [x1, y1, x2, y2]
+            "%s: class=%s conf=%.3f bbox=%s | TIMING: total=%.3fs yolo=%.3fs resnet=%.3fs",
+            img_path.name, cls_label, cls_conf, [x1, y1, x2, y2],
+            t_end - t_start, t_yolo_end - t_yolo_start, t_resnet_end - t_resnet_start
         )
 
     (OUTPUT_DIR / "summary_resnet.json").write_text(

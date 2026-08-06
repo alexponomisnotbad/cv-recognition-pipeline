@@ -2,9 +2,9 @@
 # docker-compose.yml – CV Recognition Pipeline
 # =============================================================================
 # Архитектура:
-#   camera ──► mediamtx ──► vision-pipeline ──► nats  ──► comparator
-#                                                │                │
-#                                            nats-queue       postgres/sqlite
+#   camera ──► mediamtx ──► vision-pipeline ──► nats  ──► comparator          ──► nats 
+#                                                                │                │
+#                                                           postgres/sqlite     nats-queue 
 # =============================================================================
 
 version: "3.9"
@@ -16,8 +16,10 @@ services:
     image: bluenviron/mediamtx:latest
     restart: unless-stopped
     ports:
-      - "8554:8554"   # RTSP
-      - "8888:8888"   # HLS (опционально)
+      - "8890:8890/udp"    # SRT 
+      - "8189:8189/udp"   #  (опционально)
+      - "8000:8000/udp"
+      - "8001:8001/udp"
     volumes:
       - ../src/mediamtx_v1.15.6_linux_amd64/mediamtx.yml:/mediamtx.yml:ro
     networks:
@@ -36,11 +38,12 @@ services:
   # ── Container 1: детекция (YOLO) + сегментация (SAM2) ────────────────────
   vision-pipeline:
     build:
-      context: docker-images/vision-pipeline
-      dockerfile: Dockerfile
+      context: ..
+      dockerfile: docker-images/vision-pipeline/Dockerfile
     restart: unless-stopped
+    container_name: vision-pipeline
+    cpus: "24.0"
     depends_on:
-      - mediamtx
       - nats
     environment:
       RTSP_URL:         ${RTSP_URL}
@@ -52,9 +55,16 @@ services:
       FRAME_SKIP:       ${FRAME_SKIP}
       DEVICE:           ${DEVICE}
     volumes:
-      - ../models/yolo:/app/models/yolo:ro
+      - ../src/vision-pipeline:/app
+      - ../input/yolo-test:/app/input
+      - ../classification/detection:/app/dataset_detection
+      - ../output:/app/output
+      - ../models/yolo:/app/models/yolo
+      - ../models/onnx:/app/models/onnx
+      - ../models/resnet:/app/models/resnet
       - ../models/sam1:/app/models/sam1:ro
       - ../models/sam2:/app/models/sam2:ro
+      - dev-dataset:/app/dataset
     networks:
       - cv-net
 
@@ -66,12 +76,14 @@ services:
   #   docker exec -it vision-pipeline bash
   # Остановить:
   #   docker compose -f docker/docker-compose.yml stop dev-shell
+  
   dev-shell:
     build:
-      context: docker-images/vision-pipeline
-      dockerfile: Dockerfile
+      context: ..
+      dockerfile: docker-images/vision-pipeline/Dockerfile
     profiles: ["test"]
     container_name: vision-pipeline
+    cpus: "4.0"
     environment:
       RTSP_URL:        ${RTSP_URL}
       NATS_URL:        ${NATS_URL}
@@ -83,12 +95,12 @@ services:
       DEVICE:          ${DEVICE}
     volumes:
       - ../src/vision-pipeline:/app
-      - dev-input:/app/input
-      - dev-test-classification:/app/test_classification
-      - dev-output:/app/output
+      - ../input/yolo-test:/app/input
+      - ../test-classification:/app/test_classification
+      - ../output:/app/output
       - ../models/yolo:/app/models/yolo
-      - ../models/yolo:/app/models/onnx
-      - ../models/yolo:/app/models/resnet
+      - ../models/onnx:/app/models/onnx
+      - ../models/resnet:/app/models/resnet
       - ../models/sam1:/app/models/sam1:ro
       - ../models/sam2:/app/models/sam2:ro
       - dev-dataset:/app/dataset
@@ -114,31 +126,29 @@ services:
     build:
       context: ..
       dockerfile: docker-images/comparator/Dockerfile
+    container_name: comparator
     restart: unless-stopped
     depends_on:
       - nats
-      - db
     environment:
       NATS_URL:       ${NATS_URL}
       VISION_SUBJECT: ${CMP_SUB_SUBJECT}
       SERVER_SUBJECT: ${SERVER_SUBJECT}
-      DB_URL:         ${DB_URL}
-    networks:
-      - cv-net
-    # command: ["python", "comparator/main.py"]
+  
+      DB_SERVER:      ${DB_SERVER}
+      DB_PORT:        ${DB_PORT}
+      DB_NAME:        ${DB_NAME}
+      DB_USERNAME:    ${DB_USERNAME}
+      DB_PASSWORD:    ${DB_PASSWORD}
+      DB_DRIVER:      ${DB_DRIVER}
 
-  # ── PostgreSQL: таблица эталонных меток ───────────────────────────────────
-  db:
-    image: postgres:16-alpine
-    restart: unless-stopped
-    environment:
-      POSTGRES_USER:     cv_user
-      POSTGRES_PASSWORD: cv_pass
-      POSTGRES_DB:       cv_db
+      DB_NAME_TDB:    ${DB_NAME_TDB} 
     volumes:
-      - db-data:/var/lib/postgresql/data
+      - ../src/comparator:/app
     networks:
       - cv-net
+    command: ["python", "comparator/main.py"]
+
 
 networks:
   cv-net:

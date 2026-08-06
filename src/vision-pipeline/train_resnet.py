@@ -156,10 +156,10 @@ class CvatBBoxDataset(Dataset):
 
 def train_resnet() -> None:
     dataset_root = Path(os.getenv("DATASET_ROOT", "/app/test_classification/validation_classification"))
-    ckpt_out = Path(os.getenv("CKPT_OUT", "/app/models/resnet/resnet50_cls_430.pt"))
-    epochs = int(os.getenv("EPOCHS", "50"))
+    ckpt_out = Path(os.getenv("CKPT_OUT", "/app/models/resnet/resnet50_cls_22_06.pt"))
+    epochs = int(os.getenv("EPOCHS", "60"))
     batch_size = int(os.getenv("BATCH_SIZE", "4"))
-    lr = float(os.getenv("LR", "1e-6"))
+    lr = float(os.getenv("LR", "1e-5"))
     val_split = float(os.getenv("VAL_SPLIT", "0.2"))
     device_env = os.getenv("DEVICE", "cpu")
 
@@ -225,7 +225,7 @@ def train_resnet() -> None:
         for inputs, targets in train_loader:
             inputs = inputs.to(device_t)
             targets = targets.to(device_t)
-
+            
             optimizer.zero_grad()
             outputs = model(inputs)
             loss = criterion(outputs, targets)
